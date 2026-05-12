@@ -904,7 +904,7 @@ public final class TouchControlsOverlay extends FrameLayout implements TouchCont
         float[] snapped = resolveDraggedPosition(view, proposedX, proposedY);
         LayoutMetrics metrics = layoutMetrics(getWidth(), getHeight());
 
-        // X/Y are stored in the layout's own units. JavaLauncher layouts use dp;
+        // X/Y are stored in the layout's own units. DroidBridge layouts use dp;
         // imported default_touch.json / Pojav-style layouts use source-canvas px.
         data.x = metrics.fromScreenX(data, snapped[0], view.getWidth());
         data.y = metrics.fromScreenY(snapped[1]);

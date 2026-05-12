@@ -34,36 +34,20 @@ public final class PathManager {
     public static String DIR_DATA;
     public static File DIR_CACHE;
     public static String DIR_MULTIRT_HOME;
-
-    /**
-     * Launcher support/home folder, matching Zalith's DIR_GAME_HOME behavior.
-     *
-     * Important: this is the app external files root, not the .minecraft folder.
-     * Components with privateDirectory=false, such as caciocavallo and other_login,
-     * unpack beside .minecraft instead of inside it.
-     */
     public static String DIR_GAME_HOME = "";
-
-    /**
-     * Visible Minecraft game folder created under DIR_GAME_HOME.
-     */
     public static String DIR_MINECRAFT_HOME = "";
-
     public static String DIR_LAUNCHER_LOG;
     public static String DIR_CTRLMAP_PATH;
     public static String DIR_ACCOUNT_NEW;
     public static String DIR_CACHE_STRING;
     public static String DIR_ADDONS_INFO_CACHE;
-
     @Nullable
     public static File DIR_RUNTIME_MOD;
-
     public static String DIR_CUSTOM_MOUSE;
     public static File DIR_BACKGROUND;
     public static File DIR_APP_CACHE;
     public static File DIR_USER_SKIN;
     public static File DIR_INSTALLED_RENDERER_PLUGIN;
-
     public static File FILE_SETTINGS;
     public static File FILE_PROFILE_PATH;
     public static String FILE_CTRLDEF_FILE;
@@ -78,11 +62,6 @@ public final class PathManager {
         initContextConstants(appContext, StorageLocationStore.getSelectedLauncherHome(appContext));
     }
 
-    /**
-     * Initialise paths against an explicit launcher home. This is used when launching
-     * an instance that lives on a different saved storage root than the currently
-     * selected install target.
-     */
     public static void initContextConstants(@NonNull Context context, @NonNull File launcherHome) {
         Context appContext = context.getApplicationContext();
 
@@ -119,39 +98,23 @@ public final class PathManager {
         deleteQuietly(new File(DIR_DATA, "user_skin"));
         LibPath.refresh();
     }
-
-    /**
-     * Parent folder that the DocumentsProvider exposes.
-     * The .minecraft folder is created inside this directory so users can see it.
-     */
     @NonNull
     public static File getAccessibleLauncherRoot(@NonNull Context context) {
         return getLauncherHome(context);
     }
-
-    /**
-     * Default Zalith-style launcher home: Android/data/<package>/files when available.
-     * Do not append .minecraft here.
-     */
     @NonNull
     public static File getDefaultLauncherHome(@NonNull Context context) {
         File externalFiles = context.getExternalFilesDir(null);
         return externalFiles != null ? externalFiles : new File(context.getFilesDir(), "JavaLauncher");
     }
-
-    /**
-     * Currently selected launcher home. New installs use this location.
-     */
     @NonNull
     public static File getLauncherHome(@NonNull Context context) {
         return StorageLocationStore.getSelectedLauncherHome(context.getApplicationContext());
     }
-
     @NonNull
     public static File getMinecraftHome(@NonNull Context context) {
         return new File(getLauncherHome(context), ".minecraft");
     }
-
     @NonNull
     public static File inferLauncherHomeFromGameDirectory(@NonNull File gameDirectory) {
         File candidate = gameDirectory;

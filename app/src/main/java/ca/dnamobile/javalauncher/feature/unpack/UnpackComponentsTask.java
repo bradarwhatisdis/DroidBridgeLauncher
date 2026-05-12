@@ -112,16 +112,6 @@ public class UnpackComponentsTask extends AbstractUnpackTask {
             case OTHER_LOGIN:
             case CACIOCAVALLO:
             case CACIOCAVALLO17:
-                /*
-                 * Launcher support jars must stay in app-private storage.
-                 *
-                 * The selected install location may be a user-picked/scoped folder.
-                 * If Android allows the game files there but blocks normal File writes
-                 * during splash preparation, unpacking authlib-injector/cacio beside
-                 * .minecraft can prevent the launcher from opening at all. These are
-                 * launcher/runtime support files, not user Minecraft data, so keep them
-                 * under context.filesDir just like the patched LWJGL components.
-                 */
                 return PathManager.DIR_FILE.getAbsolutePath();
             default:
                 return component.privateDirectory

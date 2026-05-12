@@ -202,9 +202,27 @@ public final class SafMinecraftMirror {
             return false;
         }
 
+        String cleaned = cleanRelativePath(relativePath);
+        if (deleteDocumentFast(context, target)) {
+            Logging.i(TAG, "Deleted scoped storage path: " + cleaned);
+            return true;
+        }
+
         deleteDocumentRecursively(context, target);
-        Logging.i(TAG, "Deleted scoped storage path: " + relativePath);
+        Logging.i(TAG, "Deleted scoped storage path recursively: " + cleaned);
         return true;
+    }
+
+    private static boolean deleteDocumentFast(
+            @NonNull Context context,
+            @NonNull Uri documentUri
+    ) {
+        try {
+            return DocumentsContract.deleteDocument(context.getContentResolver(), documentUri);
+        } catch (Throwable throwable) {
+            Logging.i(TAG, "Fast SAF delete failed, falling back to recursive delete: " + throwable.getMessage());
+            return false;
+        }
     }
 
     @Nullable

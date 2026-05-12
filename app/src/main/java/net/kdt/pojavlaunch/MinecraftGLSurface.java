@@ -100,6 +100,14 @@ public class MinecraftGLSurface extends FrameLayout implements GrabListener {
     private long suppressRelativeCursorUntilNanos;
     private long lastHardwarePointerEventNanos;
 
+    private static final long TOUCH_POINTER_MODE_RESET_NANOS = 650_000_000L;
+    private static final float HARDWARE_TOP_LEFT_EPSILON = 1.0f;
+
+    private float lastHardwareMouseX;
+    private float lastHardwareMouseY;
+    private boolean hasLastHardwareMousePosition;
+    private long suppressSuspiciousHardwareAbsoluteUntilNanos;
+
     // Some Android devices dispatch physical mouse clicks as normal touch DOWN/UP
     // events instead of generic ACTION_BUTTON_PRESS/RELEASE events. Keep the
     // hardware mouse path separate from finger touch so Minecraft menus/keybinds
@@ -218,10 +226,16 @@ public class MinecraftGLSurface extends FrameLayout implements GrabListener {
             public void surfaceChanged(@NonNull SurfaceHolder holder, int format, int width, int height) {
                 RenderSize size = updateScaledSizeFromView(nativeSurfaceView.getWidth(), nativeSurfaceView.getHeight());
                 applyNativeSurfaceBufferSize(holder, size);
-                refreshSize(size);
+
                 if (holder.getSurface().isValid()) {
                     JREUtils.setupBridgeWindow(holder.getSurface());
                     bridgeWindowAttached = true;
+
+                    updateSizeFields(size);
+                    CallbackBridge.sendUpdateWindowSize(size.renderWidth, size.renderHeight);
+                    CallbackBridge.sendCursorPos(CallbackBridge.mouseX, CallbackBridge.mouseY);
+
+                    scheduleSurfaceResizeRefreshes();
                     notifyRenderingStartedSoon();
                 }
             }
@@ -285,6 +299,7 @@ public class MinecraftGLSurface extends FrameLayout implements GrabListener {
 
     private void realStart(@NonNull Surface surface, @NonNull RenderSize size, boolean assumeRenderingStarted) {
         attachBridgeWindow(surface, size);
+        scheduleSurfaceResizeRefreshes();
 
         if (assumeRenderingStarted) {
             notifyRenderingStartedSoon();
@@ -304,6 +319,7 @@ public class MinecraftGLSurface extends FrameLayout implements GrabListener {
         CallbackBridge.mouseY = size.renderHeight / 2f;
         CallbackBridge.sendUpdateWindowSize(size.renderWidth, size.renderHeight);
         CallbackBridge.sendCursorPos(CallbackBridge.mouseX, CallbackBridge.mouseY);
+        scheduleSurfaceResizeRefreshes();
     }
 
     @NonNull
@@ -389,9 +405,18 @@ public class MinecraftGLSurface extends FrameLayout implements GrabListener {
         postDelayed(this::notifyRenderingStartedOnce, 100);
     }
 
+    private void scheduleSurfaceResizeRefreshes() {
+        post(this::refreshSize);
+        postDelayed(this::refreshSize, 120L);
+        postDelayed(this::refreshSize, 350L);
+        postDelayed(this::refreshSize, 750L);
+        postDelayed(this::refreshSize, 1500L);
+    }
+
     private void notifyRenderingStartedOnce() {
         if (renderingStarted) return;
         renderingStarted = true;
+        scheduleSurfaceResizeRefreshes();
         if (renderingStartedListener != null) renderingStartedListener.isStarted();
     }
 
@@ -547,16 +572,14 @@ public class MinecraftGLSurface extends FrameLayout implements GrabListener {
 
         switch (action) {
             case MotionEvent.ACTION_DOWN:
-                lastTouchX = x;
-                lastTouchY = y;
-                if (!grabbed) sendAbsoluteCursor(x, y);
+                updateHardwareMousePositionIfUsable(event, x, y);
+                if (!grabbed) sendHardwareAbsoluteCursor(event, x, y);
                 return sendPrimaryMouseDownIfNeeded(event);
 
             case MotionEvent.ACTION_UP:
-                if (!grabbed) sendAbsoluteCursor(x, y);
+                if (!grabbed) sendHardwareAbsoluteCursor(event, x, y);
                 releaseMouseButtonsForEvent(event);
-                lastTouchX = x;
-                lastTouchY = y;
+                updateHardwareMousePositionIfUsable(event, x, y);
                 return true;
 
             case MotionEvent.ACTION_MOVE:
@@ -565,27 +588,33 @@ public class MinecraftGLSurface extends FrameLayout implements GrabListener {
                     float relX = getRelativeAxis(event, MotionEvent.AXIS_RELATIVE_X, pointerIndex);
                     float relY = getRelativeAxis(event, MotionEvent.AXIS_RELATIVE_Y, pointerIndex);
                     if (relX == 0f && relY == 0f) {
-                        relX = x - lastTouchX;
-                        relY = y - lastTouchY;
+                        if (!hasLastHardwareMousePosition || !isUsableHardwareAbsoluteCoordinate(event, x, y)) {
+                            updateHardwareMousePositionIfUsable(event, x, y);
+                            return true;
+                        }
+                        relX = x - lastHardwareMouseX;
+                        relY = y - lastHardwareMouseY;
                     }
                     sendHardwareRelativeCursor(relX, relY);
                 } else {
-                    sendAbsoluteCursor(x, y);
+                    sendHardwareAbsoluteCursor(event, x, y);
                 }
-                lastTouchX = x;
-                lastTouchY = y;
+                updateHardwareMousePositionIfUsable(event, x, y);
                 return true;
 
             case MotionEvent.ACTION_BUTTON_PRESS:
-                if (!grabbed) sendAbsoluteCursor(x, y);
+                if (!grabbed) sendHardwareAbsoluteCursor(event, x, y);
+                updateHardwareMousePositionIfUsable(event, x, y);
                 return sendMouseButtonUnconvertedTracked(event, true, pointerIndex);
 
             case MotionEvent.ACTION_BUTTON_RELEASE:
-                if (!grabbed) sendAbsoluteCursor(x, y);
+                if (!grabbed) sendHardwareAbsoluteCursor(event, x, y);
+                updateHardwareMousePositionIfUsable(event, x, y);
                 return sendMouseButtonUnconvertedTracked(event, false, pointerIndex);
 
             case MotionEvent.ACTION_CANCEL:
                 releaseAllHardwareMouseButtons();
+                resetHardwarePointerTracking(false);
                 return true;
 
             default:
@@ -691,18 +720,24 @@ public class MinecraftGLSurface extends FrameLayout implements GrabListener {
         switch (event.getActionMasked()) {
             case MotionEvent.ACTION_HOVER_MOVE:
             case MotionEvent.ACTION_MOVE:
+                float x = safeEventX(event, pointerIndex);
+                float y = safeEventY(event, pointerIndex);
                 if (grabbed) {
                     float relX = getRelativeAxis(event, MotionEvent.AXIS_RELATIVE_X, pointerIndex);
                     float relY = getRelativeAxis(event, MotionEvent.AXIS_RELATIVE_Y, pointerIndex);
                     if (relX == 0f && relY == 0f) {
-                        relX = event.getX(pointerIndex) - lastTouchX;
-                        relY = event.getY(pointerIndex) - lastTouchY;
+                        if (!hasLastHardwareMousePosition || !isUsableHardwareAbsoluteCoordinate(event, x, y)) {
+                            updateHardwareMousePositionIfUsable(event, x, y);
+                            return true;
+                        }
+                        relX = x - lastHardwareMouseX;
+                        relY = y - lastHardwareMouseY;
                     }
                     sendHardwareRelativeCursor(relX, relY);
-                    lastTouchX = event.getX(pointerIndex);
-                    lastTouchY = event.getY(pointerIndex);
+                    updateHardwareMousePositionIfUsable(event, x, y);
                 } else {
-                    sendAbsoluteCursor(event.getX(pointerIndex), event.getY(pointerIndex));
+                    sendHardwareAbsoluteCursor(event, x, y);
+                    updateHardwareMousePositionIfUsable(event, x, y);
                 }
                 return true;
 
@@ -714,11 +749,13 @@ public class MinecraftGLSurface extends FrameLayout implements GrabListener {
                 return true;
 
             case MotionEvent.ACTION_BUTTON_PRESS:
-                if (!grabbed) sendAbsoluteCursor(event.getX(pointerIndex), event.getY(pointerIndex));
+                if (!grabbed) sendHardwareAbsoluteCursor(event, safeEventX(event, pointerIndex), safeEventY(event, pointerIndex));
+                updateHardwareMousePositionIfUsable(event, safeEventX(event, pointerIndex), safeEventY(event, pointerIndex));
                 return sendMouseButtonUnconvertedTracked(event, true, pointerIndex);
 
             case MotionEvent.ACTION_BUTTON_RELEASE:
-                if (!grabbed) sendAbsoluteCursor(event.getX(pointerIndex), event.getY(pointerIndex));
+                if (!grabbed) sendHardwareAbsoluteCursor(event, safeEventX(event, pointerIndex), safeEventY(event, pointerIndex));
+                updateHardwareMousePositionIfUsable(event, safeEventX(event, pointerIndex), safeEventY(event, pointerIndex));
                 return sendMouseButtonUnconvertedTracked(event, false, pointerIndex);
 
             default:
@@ -736,8 +773,11 @@ public class MinecraftGLSurface extends FrameLayout implements GrabListener {
                 float relX = getRelativeAxis(event, MotionEvent.AXIS_RELATIVE_X, 0);
                 float relY = getRelativeAxis(event, MotionEvent.AXIS_RELATIVE_Y, 0);
                 if (relX == 0f && relY == 0f) {
-                    relX = event.getX();
-                    relY = event.getY();
+                    // Under Android pointer capture, getX()/getY() can be a synthetic
+                    // 0,0 position on some devices after touch input or dialogs. Treat
+                    // that as "no movement" instead of warping the virtual cursor to a
+                    // screen corner.
+                    return true;
                 }
                 sendHardwareRelativeCursor(relX, relY);
                 return true;
@@ -750,11 +790,13 @@ public class MinecraftGLSurface extends FrameLayout implements GrabListener {
                 return true;
 
             case MotionEvent.ACTION_BUTTON_PRESS:
-                if (!grabbed) sendAbsoluteCursor(event.getX(), event.getY());
+                if (!grabbed) sendHardwareAbsoluteCursor(event, event.getX(), event.getY());
+                updateHardwareMousePositionIfUsable(event, event.getX(), event.getY());
                 return sendMouseButtonUnconvertedTracked(event, true, 0);
 
             case MotionEvent.ACTION_BUTTON_RELEASE:
-                if (!grabbed) sendAbsoluteCursor(event.getX(), event.getY());
+                if (!grabbed) sendHardwareAbsoluteCursor(event, event.getX(), event.getY());
+                updateHardwareMousePositionIfUsable(event, event.getX(), event.getY());
                 return sendMouseButtonUnconvertedTracked(event, false, 0);
 
             default:
@@ -886,6 +928,52 @@ public class MinecraftGLSurface extends FrameLayout implements GrabListener {
         CallbackBridge.sendCursorPos(CallbackBridge.mouseX, CallbackBridge.mouseY);
     }
 
+    private void sendHardwareAbsoluteCursor(@NonNull MotionEvent event, float x, float y) {
+        if (!isUsableHardwareAbsoluteCoordinate(event, x, y)) {
+            return;
+        }
+        sendAbsoluteCursor(x, y);
+    }
+
+    private void updateHardwareMousePositionIfUsable(@NonNull MotionEvent event, float x, float y) {
+        if (!isFiniteCoordinate(x) || !isFiniteCoordinate(y)) return;
+        if (isSuspiciousHardwareTopLeftCoordinate(event, x, y)) return;
+        lastHardwareMouseX = x;
+        lastHardwareMouseY = y;
+        hasLastHardwareMousePosition = true;
+    }
+
+    private boolean isUsableHardwareAbsoluteCoordinate(@NonNull MotionEvent event, float x, float y) {
+        return isFiniteCoordinate(x)
+                && isFiniteCoordinate(y)
+                && !isSuspiciousHardwareTopLeftCoordinate(event, x, y);
+    }
+
+    private boolean isSuspiciousHardwareTopLeftCoordinate(@NonNull MotionEvent event, float x, float y) {
+        if (x > HARDWARE_TOP_LEFT_EPSILON || y > HARDWARE_TOP_LEFT_EPSILON) return false;
+        if ((event.getButtonState() & (MotionEvent.BUTTON_PRIMARY
+                | MotionEvent.BUTTON_SECONDARY
+                | MotionEvent.BUTTON_TERTIARY)) != 0) {
+            return false;
+        }
+        long until = suppressSuspiciousHardwareAbsoluteUntilNanos;
+        return until > 0L && System.nanoTime() < until;
+    }
+
+    private static boolean isFiniteCoordinate(float value) {
+        return !Float.isNaN(value) && !Float.isInfinite(value);
+    }
+
+    private void resetHardwarePointerTracking(boolean suppressSuspiciousAbsolute) {
+        hasLastHardwareMousePosition = false;
+        lastHardwareMouseX = 0f;
+        lastHardwareMouseY = 0f;
+        lastHardwarePointerEventNanos = 0L;
+        if (suppressSuspiciousAbsolute) {
+            suppressSuspiciousHardwareAbsoluteUntilNanos = System.nanoTime() + TOUCH_POINTER_MODE_RESET_NANOS;
+        }
+    }
+
     private float mapViewXToCursorX(float x) {
         return mapViewCoordinateToCursorCoordinate(
                 x,
@@ -915,13 +1003,25 @@ public class MinecraftGLSurface extends FrameLayout implements GrabListener {
     }
 
     private void sendRelativeCursor(float dx, float dy) {
+        sendScaledRelativeCursor(dx, dy);
+    }
+
+    private void sendScaledRelativeCursor(float dx, float dy) {
+        sendRelativeCursorInternal(scaleDeltaX(dx), scaleDeltaY(dy));
+    }
+
+    private void sendUnscaledRelativeCursor(float dx, float dy) {
+        sendRelativeCursorInternal(dx, dy);
+    }
+
+    private void sendRelativeCursorInternal(float dx, float dy) {
         if (shouldSuppressRelativeCursor()) {
             return;
         }
 
         CallbackBridge.setInputReady(true);
-        CallbackBridge.mouseX += scaleDeltaX(dx);
-        CallbackBridge.mouseY += scaleDeltaY(dy);
+        CallbackBridge.mouseX += dx;
+        CallbackBridge.mouseY += dy;
         CallbackBridge.sendCursorPos(CallbackBridge.mouseX, CallbackBridge.mouseY);
     }
 
@@ -932,7 +1032,11 @@ public class MinecraftGLSurface extends FrameLayout implements GrabListener {
 
     private void sendHardwareRelativeCursor(float dx, float dy) {
         float mouseDpiScale = GamepadMappingStore.get(getContext()).getHardwareMouseDpiScaleMultiplier();
-        sendRelativeCursor(dx * mouseDpiScale, dy * mouseDpiScale);
+
+        // Physical mouse relative deltas are already camera movement. Do not
+        // multiply them by the render-resolution scale, otherwise reducing the
+        // game resolution makes hardware mouse look slower than touch/gamepad.
+        sendUnscaledRelativeCursor(dx * mouseDpiScale, dy * mouseDpiScale);
     }
 
     public static boolean sendMouseButtonUnconverted(int button, boolean status) {
@@ -1013,6 +1117,7 @@ public class MinecraftGLSurface extends FrameLayout implements GrabListener {
                 suppressRelativeCursorUntilNanos = System.nanoTime() + POINTER_REGRAB_RELATIVE_SUPPRESS_NANOS;
                 cancelTouchLongPressAttack(true);
                 resetTouchTracking();
+                resetHardwarePointerTracking(true);
                 releaseAllHardwareMouseButtons();
 
                 if (shouldUsePointerCapture()) {
@@ -1045,13 +1150,13 @@ public class MinecraftGLSurface extends FrameLayout implements GrabListener {
     }
 
     private void markTouchInputMode() {
-        // If a user disconnects a mouse/keyboard and goes back to touch, do not
-        // keep a stale pointer-capture state around. This avoids the touch layer
-        // feeling frozen after hardware disconnects. Keep capture only while a
-        // real hardware pointer was seen very recently.
-        if (!hasRecentlySeenHardwarePointer() && !hasRealExternalPointerDevice()) {
-            safeReleasePointerCapture();
-        }
+        // Switching from a physical mouse to touch can leave Android pointer capture
+        // in a stale relative-input state on some devices. Reset the hardware-pointer
+        // baseline and release capture so the next real mouse movement starts a fresh
+        // mouse session instead of warping to 0,0/top-left.
+        resetHardwarePointerTracking(true);
+        releaseAllHardwareMouseButtons();
+        safeReleasePointerCapture();
     }
 
     private void markHardwarePointerInputMode() {
@@ -1338,25 +1443,47 @@ public class MinecraftGLSurface extends FrameLayout implements GrabListener {
 
     public static boolean isPhysicalKeyboardBackAsEsc(@Nullable KeyEvent event) {
         if (event == null || event.getKeyCode() != KeyEvent.KEYCODE_BACK) return false;
+        if ((event.getFlags() & KeyEvent.FLAG_SOFT_KEYBOARD) != 0) return false;
 
         InputDevice device = null;
         try {
             device = event.getDevice();
         } catch (Throwable ignored) {
         }
-        if (isGameControllerDevice(device)) return false;
 
         int source = event.getSource();
+        int scanCode = safeScanCode(event);
         boolean sourceKeyboard = (source & InputDevice.SOURCE_KEYBOARD) == InputDevice.SOURCE_KEYBOARD;
+        boolean sourceDpad = (source & InputDevice.SOURCE_DPAD) == InputDevice.SOURCE_DPAD;
         boolean deviceKeyboard = device != null && device.getKeyboardType() != InputDevice.KEYBOARD_TYPE_NONE;
-        boolean notSoftKeyboard = (event.getFlags() & KeyEvent.FLAG_SOFT_KEYBOARD) == 0;
-        boolean hasHardwareScanCode = safeScanCode(event) != 0;
+        boolean hasHardwareScanCode = scanCode != 0;
+        boolean looksLikeEscScanCode = scanCode == 1;
+        boolean virtualKeyboard = event.getDeviceId() == KeyCharacterMap.VIRTUAL_KEYBOARD;
 
-        // System navigation BACK usually has no useful scancode. Hardware keyboard
-        // Esc-as-Back normally has a keyboard source/device and/or a non-zero scancode.
-        // Scrcpy SDK keyboard can be VIRTUAL_KEYBOARD, so do not reject it by device id
-        // unless Android explicitly marks the event as soft-keyboard generated.
-        return (sourceKeyboard || deviceKeyboard) && notSoftKeyboard && (hasHardwareScanCode || event.getDeviceId() != KeyCharacterMap.VIRTUAL_KEYBOARD);
+        // System/navigation BACK is normally not a keyboard source and usually has
+        // no useful scancode. Some Bluetooth keyboards and keyboard/touchpad combos
+        // report Escape as BACK with odd DPAD/game-ish metadata, so accept those
+        // when they still carry keyboard/source/scancode evidence.
+        boolean keyboardCandidate = sourceKeyboard
+                || deviceKeyboard
+                || looksLikeEscScanCode
+                || (sourceDpad && hasHardwareScanCode);
+        if (!keyboardCandidate) return false;
+
+        // Do not let plain controller Back/Select become keyboard Escape, but do
+        // allow hybrid HID devices that still clearly expose a keyboard side.
+        if (isGameControllerDevice(device)
+                && !sourceKeyboard
+                && !deviceKeyboard
+                && !looksLikeEscScanCode) {
+            return false;
+        }
+
+        return looksLikeEscScanCode
+                || hasHardwareScanCode
+                || sourceKeyboard
+                || deviceKeyboard
+                || !virtualKeyboard;
     }
 
     private static boolean isControllerLikeKeyCode(int keyCode) {
