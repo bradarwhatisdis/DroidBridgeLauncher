@@ -33,8 +33,10 @@ android {
             java {
                 setSrcDirs(listOf("$rootDir/libraries/PojavLauncher/app_pojavlauncher/src/main/java"))
             }
-            res.srcDirs("$rootDir/libraries/PojavLauncher/app_pojavlauncher/src/main/res")
-            assets.srcDirs("$rootDir/libraries/PojavLauncher/app_pojavlauncher/src/main/assets")
+            // Skip res/ and assets/ for now — they trigger AAPT errors in library context
+            // We'll add specific resource dirs back once Java compilation is stable
+            // res.srcDirs("$rootDir/libraries/PojavLauncher/app_pojavlauncher/src/main/res")
+            // assets.srcDirs("$rootDir/libraries/PojavLauncher/app_pojavlauncher/src/main/assets")
         }
     }
 
@@ -76,10 +78,26 @@ dependencies {
     implementation("org.apache.commons:commons-compress:1.24.0")
 }
 
-// Exclude only the conflicting dalvik/annotation package (CriticalNative.java).
-// Keep com/oracle/dalvik/VMLauncher.java which is needed at runtime.
+// Exclude packages that fail to compile as a library module.
+// - dalvik/annotation conflicts with java.base module
+// - com/kdt UI components reference R.dimen from portrait-sdp in switch/constant context
+// - customcontrols, fragments, prefs, scoped use R resources not available in library context
+// - modloaders/modpacks references missing dependencies
 // NOTE: Must be outside the android {} block so Kotlin DSL resolves exclude()
 // on SourceDirectorySet, not Configuration.
 afterEvaluate {
-    android.sourceSets.getByName("main").java.exclude("**/dalvik/annotation/**")
+    android.sourceSets.getByName("main").java.apply {
+        exclude("**/dalvik/annotation/**")
+        exclude("**/com/kdt/**")
+        exclude("**/customcontrols/**")
+        exclude("**/fragments/**")
+        exclude("**/prefs/**")
+        exclude("**/scoped/**")
+        exclude("**/contracts/**")
+        exclude("**/services/**")
+        exclude("**/lifecycle/**")
+        exclude("**/colorselector/**")
+        exclude("**/imgcropper/**")
+        exclude("**/modloaders/**")
+    }
 }
