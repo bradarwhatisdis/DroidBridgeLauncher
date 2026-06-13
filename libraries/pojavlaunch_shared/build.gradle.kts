@@ -32,8 +32,6 @@ android {
         getByName("main") {
             java {
                 setSrcDirs(listOf("$rootDir/libraries/PojavLauncher/app_pojavlauncher/src/main/java"))
-                exclude("**/jni/**")
-                exclude("**/native/**")
             }
             res.srcDirs("$rootDir/libraries/PojavLauncher/app_pojavlauncher/src/main/res")
             assets.srcDirs("$rootDir/libraries/PojavLauncher/app_pojavlauncher/src/main/assets")
