@@ -56,21 +56,6 @@ dependencies {
     // Material Design 3
     implementation("com.google.android.material:material:1.12.0")
 
-    // ----------------------------------------------------------------
-    // PojavLauncher / Boardwalk — REQUIRED for compilation.
-    // These provide:
-    //   net.kdt.pojavlaunch.*        (Tools, Logger, Architecture, etc.)
-    //   com.oracle.dalvik.VMLauncher (Boardwalk VM launcher)
-    //
-    // Option A — local AAR files (place in app/libs/):
-    //   implementation(fileTree("libs") { include("*.aar") })
-    //
-    // Option B — published Maven artifacts:
-    //   implementation("net.kdt.pojavlaunch:pojavlaunch:VERSION")
-    //   implementation("com.oracle.dalvik:boardwalk:VERSION")
-    //
-    // Option C — local module dependency:
-    //   implementation(project(":pojavlaunch"))
-    // ----------------------------------------------------------------
-    // implementation(fileTree("libs") { include("*.aar") })
+    // PojavLauncher library module (git submodule in libraries/PojavLauncher)
+    implementation(project(":libraries:pojavlaunch_shared"))
 }

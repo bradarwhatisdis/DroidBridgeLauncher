@@ -10,8 +10,7 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
-        // PojavLauncher / other snapshot dependencies, if needed:
-        // maven("https://maven.pojavlaunch.com/snapshots")
+        maven("https://jitpack.io")
     }
 }
 
@@ -19,3 +18,4 @@ rootProject.name = "DroidBridgeLauncher"
 
 include(":app")
 include(":methods_injector_agent")
+include(":libraries:pojavlaunch_shared")

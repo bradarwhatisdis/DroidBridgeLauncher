@@ -5,6 +5,8 @@
 # Builds a signed release APK (and AAB) when a version tag is pushed.
 # Requires signing secrets configured in GitHub repository settings.
 #
+# PojavLauncher dependency via git submodule (libraries/PojavLauncher).
+#
 # Trigger: git tag vX.Y.Z (e.g. v1.0.0, v2.3.4-beta1)
 #
 # Required GitHub Secrets for signing:
@@ -42,8 +44,10 @@ jobs:
       # ------------------------------------------------------------------
       # 1. Checkout repository at the tagged commit
       # ------------------------------------------------------------------
-      - name: Checkout source
+      - name: Checkout source with submodules
         uses: actions/checkout@v4
+        with:
+          submodules: 'recursive'
 
       # ------------------------------------------------------------------
       # 2. Set up JDK
