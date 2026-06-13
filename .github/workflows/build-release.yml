@@ -1,0 +1,209 @@
+---
+# =============================================================================
+# DroidBridge Launcher — Release Build Workflow
+# =============================================================================
+# Builds a signed release APK (and AAB) when a version tag is pushed.
+# Requires signing secrets configured in GitHub repository settings.
+#
+# Trigger: git tag vX.Y.Z (e.g. v1.0.0, v2.3.4-beta1)
+#
+# Required GitHub Secrets for signing:
+#   RELEASE_KEYSTORE         — Base64-encoded JKS keystore file
+#   RELEASE_KEYSTORE_PASSWORD — Keystore password
+#   RELEASE_KEY_ALIAS         — Key alias inside the keystore
+#   RELEASE_KEY_PASSWORD      — Private key password
+#
+# To encode your keystore:
+#   base64 -w0 /path/to/your.keystore   # Linux/macOS
+#
+# To decode in workflow (already handled below):
+#   echo "$RELEASE_KEYSTORE" | base64 --decode > keystore.jks
+#
+# Set these secrets at:
+#   https://github.com/<owner>/<repo>/settings/secrets/actions
+# =============================================================================
+
+name: Release Build
+
+on:
+  push:
+    tags:
+      - 'v*'        # e.g. v1.0.0, v2.3.4-rc1
+
+env:
+  JDK_VERSION: 17
+
+jobs:
+  release:
+    name: Build Signed Release APK + AAB
+    runs-on: ubuntu-latest
+
+    steps:
+      # ------------------------------------------------------------------
+      # 1. Checkout repository at the tagged commit
+      # ------------------------------------------------------------------
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      # ------------------------------------------------------------------
+      # 2. Set up JDK
+      # ------------------------------------------------------------------
+      - name: Set up JDK ${{ env.JDK_VERSION }}
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JDK_VERSION }}
+
+      # ------------------------------------------------------------------
+      # 3. Set up Android SDK
+      # ------------------------------------------------------------------
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      # ------------------------------------------------------------------
+      # 4. Accept Android licenses
+      # ------------------------------------------------------------------
+      - name: Accept Android SDK licenses
+        run: |
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null 2>&1 || true
+
+      # ------------------------------------------------------------------
+      # 5. Setup Gradle wrapper (generate gradlew if absent)
+      # ------------------------------------------------------------------
+      - name: Setup Gradle wrapper
+        run: |
+          if [ ! -f gradlew ]; then
+            java -jar gradle/wrapper/gradle-wrapper.jar \
+              --gradle-version "$(grep distributionUrl gradle/wrapper/gradle-wrapper.properties \
+                | sed 's/.*gradle-//; s/-bin.zip//')"
+            chmod +x gradlew
+          else
+            chmod +x gradlew
+          fi
+
+      # ------------------------------------------------------------------
+      # 6. Cache Gradle dependencies
+      # ------------------------------------------------------------------
+      - name: Cache Gradle dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-release-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      # ------------------------------------------------------------------
+      # 7. Decode release keystore from secrets
+      # ------------------------------------------------------------------
+      - name: Decode release keystore
+        env:
+          KEYSTORE_B64: ${{ secrets.RELEASE_KEYSTORE }}
+        run: |
+          if [ -z "$KEYSTORE_B64" ]; then
+            echo "::error::RELEASE_KEYSTORE secret is not set."
+            echo "::error::Set it at: Settings → Secrets and variables → Actions"
+            exit 1
+          fi
+          echo "$KEYSTORE_B64" | base64 --decode > keystore.jks
+          echo "KEYSTORE_FILE=$(realpath keystore.jks)" >> "$GITHUB_ENV"
+
+      # ------------------------------------------------------------------
+      # 8. Build signed release APK & AAB
+      #    Signing config is injected via project property overrides.
+      #    Your app/build.gradle.kts must read these:
+      #
+      #      signingConfigs {
+      #          create("release") {
+      #              storeFile          = file(System.getProperty("signing.storeFile")        ?: "")
+      #              storePassword      = System.getProperty("signing.storePassword")          ?: ""
+      #              keyAlias           = System.getProperty("signing.keyAlias")               ?: ""
+      #              keyPassword        = System.getProperty("signing.keyPassword")            ?: ""
+      #              enableV1Signing    = true
+      #              enableV2Signing    = true
+      #              enableV3Signing    = true
+      #          }
+      #      }
+      #      ...
+      #      buildTypes {
+      #          release {
+      #              signingConfig = signingConfigs.getByName("release")
+      #          }
+      #      }
+      # ------------------------------------------------------------------
+      - name: Build signed release APK + AAB
+        env:
+          SIGNING_STORE_FILE: ${{ env.KEYSTORE_FILE }}
+          SIGNING_STORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          SIGNING_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          SIGNING_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+        run: |
+          ./gradlew assembleRelease bundleRelease --no-daemon --stacktrace \
+            -Dsigning.storeFile="$SIGNING_STORE_FILE" \
+            -Dsigning.storePassword="$SIGNING_STORE_PASSWORD" \
+            -Dsigning.keyAlias="$SIGNING_KEY_ALIAS" \
+            -Dsigning.keyPassword="$SIGNING_KEY_PASSWORD"
+
+      # ------------------------------------------------------------------
+      # 9. Verify APK is signed (optional sanity check)
+      # ------------------------------------------------------------------
+      - name: Verify APK signature
+        run: |
+          APK=$(ls app/build/outputs/apk/release/*.apk 2>/dev/null | head -1)
+          if [ -z "$APK" ]; then
+            echo "::warning::No release APK found — skipping signature check"
+          else
+            echo "Checking: $APK"
+            unzip -p "$APK" META-INF/*.RSA 2>/dev/null | keytool -printcert 2>/dev/null || \
+              echo "::warning::Could not verify certificate (unzip APK may have no META-INF)"
+          fi
+
+      # ------------------------------------------------------------------
+      # 10. Upload release APK artifact
+      # ------------------------------------------------------------------
+      - name: Upload release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: DroidBridgeLauncher-release-apk
+          path: app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+          retention-days: 90
+
+      # ------------------------------------------------------------------
+      # 11. Upload release AAB artifact
+      # ------------------------------------------------------------------
+      - name: Upload release AAB (App Bundle)
+        uses: actions/upload-artifact@v4
+        with:
+          name: DroidBridgeLauncher-release-aab
+          path: app/build/outputs/bundle/release/*.aab
+          if-no-files-found: warn     # AAB may not be configured; don't fail
+          retention-days: 90
+
+      # ------------------------------------------------------------------
+      # 12. Create GitHub Release with APK attached
+      # ------------------------------------------------------------------
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: success()
+        with:
+          name: DroidBridge Launcher ${{ github.ref_name }}
+          tag_name: ${{ github.ref_name }}
+          body: |
+            ## DroidBridge Launcher ${{ github.ref_name }}
+
+            **APK** and **AAB** attached below (see Artifacts section if not shown here).
+
+            ### Install
+            1. Download the APK from the release attachments
+            2. Open it on your Android device
+            3. Allow installation from unknown sources if prompted
+
+            ### What's new
+            *Release notes will be added automatically or manually.*
+          files: |
+            app/build/outputs/apk/release/*.apk
+            app/build/outputs/bundle/release/*.aab
+          draft: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
