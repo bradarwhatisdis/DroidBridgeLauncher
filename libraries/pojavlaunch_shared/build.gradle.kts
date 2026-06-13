@@ -32,8 +32,6 @@ android {
         getByName("main") {
             java {
                 setSrcDirs(listOf("$rootDir/libraries/PojavLauncher/app_pojavlauncher/src/main/java"))
-                // Exclude CriticalNative.java — conflicts with java.base module in JDK 17+
-                setExcludes(listOf("**/dalvik/**"))
             }
             res.srcDirs("$rootDir/libraries/PojavLauncher/app_pojavlauncher/src/main/res")
             assets.srcDirs("$rootDir/libraries/PojavLauncher/app_pojavlauncher/src/main/assets")
@@ -75,4 +73,11 @@ dependencies {
     implementation("com.google.code.gson:gson:2.10.1")
     implementation("commons-io:commons-io:2.11.0")
     implementation("net.objecthunter:exp4j:0.4.8")
+}
+
+// Exclude dalvik/annotation dir — package conflicts with java.base module in JDK 17+
+// NOTE: Must be outside the android {} block so Kotlin DSL resolves exclude()
+// on SourceDirectorySet, not Configuration.
+afterEvaluate {
+    android.sourceSets.getByName("main").java.exclude("**/dalvik/**")
 }
