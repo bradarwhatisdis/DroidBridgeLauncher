@@ -71,18 +71,19 @@ jobs:
           yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null 2>&1 || true
 
       # ------------------------------------------------------------------
-      # 5. Verify Gradle wrapper is present; generate gradlew if missing
+      # 5. Generate gradlew script (wrapper JAR present but missing Main-Class)
+      #    Base64-encoded to avoid heredoc/YAML indentation conflicts.
+      #    Decoded content is a standard Gradle wrapper launcher script.
       # ------------------------------------------------------------------
-      - name: Setup Gradle wrapper
+      - name: Generate gradlew script
         run: |
           if [ ! -f gradlew ]; then
-            echo "gradlew not found — generating from gradle-wrapper.jar ..."
-            # The wrapper jar must already exist in gradle/wrapper/
-            java -jar gradle/wrapper/gradle-wrapper.jar --gradle-version "$(cat gradle/wrapper/gradle-wrapper.properties | grep distributionUrl | sed 's/.*gradle-//; s/-bin.zip//' | tr -d '\\n')"
+            echo 'IyEvYmluL3NoCgojIFJlc29sdmUgc2NyaXB0IGxvY2F0aW9uIGZvciBBUFBfSE9NRQpQUkc9IiQwIgpQUkdESVI9JChkaXJuYW1lICIkUFJHIikKQVBQX0hPTUU9JChjZCAiJFBSR0RJUiIgOyBwd2QpCgpBUFBfTkFNRT0iR3JhZGxlIgpBUFBfQkFTRV9OQU1FPSQoYmFzZW5hbWUgIiQwIikKREVGQVVMVF9KVk1fT1BUUz0iLVhteDY0bSAtWG1zNjRtIgoKQ0xBU1NQQVRIPSRBUFBfSE9NRS9ncmFkbGUvd3JhcHBlci9ncmFkbGUtd3JhcHBlci5qYXIKCmlmIFsgLW4gIiRKQVZBX0hPTUUiIF0gOyB0aGVuCiAgICBKQVZBQ01EPSRKQVZBX0hPTUUvYmluL2phdmEKZWxzZQogICAgSkFWQUNNRD0iamF2YSIKZmkKCmV4ZWMgIiRKQVZBQ01EIiBcCiAgICAkREVGQVVMVF9KVk1fT1BUUyBcCiAgICAkSkFWQV9PUFRTIFwKICAgICRHUkFETEVfT1BUUyBcCiAgICAiLURvcmcuZ3JhZGxlLmFwcG5hbWU9JEFQUF9CQVNFX05BTUUiIFwKICAgIC1jbGFzc3BhdGggIiRDTEFTU1BBVEgiIFwKICAgIG9yZy5ncmFkbGUud3JhcHBlci5HcmFkbGVXcmFwcGVyTWFpbiAiJEAiCg==' | base64 -d > gradlew
             chmod +x gradlew
+            echo "gradlew generated"
           else
-            echo "gradlew found"
             chmod +x gradlew
+            echo "gradlew already exists"
           fi
 
       # ------------------------------------------------------------------
