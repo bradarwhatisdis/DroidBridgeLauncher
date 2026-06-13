@@ -6,4 +6,21 @@
         <item name="cornerSize">10dp</item>
     </style>
 
+    <!-- Base application theme -->
+    <style name="Theme.DroidBridgeLauncher" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
+
+    <!-- Splash / startup theme (hide status bar) -->
+    <style name="Theme.DroidBridgeLauncher.Splash" parent="Theme.DroidBridgeLauncher">
+        <item name="android:windowFullscreen">true</item>
+    </style>
+
+    <!-- Game surface theme (fullscreen, no title) -->
+    <style name="Theme.DroidBridgeLauncher.Game" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:windowContentOverlay">@null</item>
+    </style>
+
 </resources>
