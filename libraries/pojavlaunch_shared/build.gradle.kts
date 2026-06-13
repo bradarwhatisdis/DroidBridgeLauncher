@@ -32,6 +32,8 @@ android {
         getByName("main") {
             java {
                 setSrcDirs(listOf("$rootDir/libraries/PojavLauncher/app_pojavlauncher/src/main/java"))
+                // Exclude CriticalNative.java — conflicts with java.base module in JDK 17+
+                exclude("**/dalvik/**")
             }
             res.srcDirs("$rootDir/libraries/PojavLauncher/app_pojavlauncher/src/main/res")
             assets.srcDirs("$rootDir/libraries/PojavLauncher/app_pojavlauncher/src/main/assets")
@@ -68,4 +70,9 @@ dependencies {
     implementation("org.tukaani:xz:1.8")
     implementation("net.sourceforge.htmlcleaner:htmlcleaner:2.6.1")
     implementation("com.bytedance:bytehook:1.0.9")
+
+    // Missing PojavLauncher compile dependencies
+    implementation("com.google.code.gson:gson:2.10.1")
+    implementation("commons-io:commons-io:2.11.0")
+    implementation("net.objecthunter:exp4j:0.4.8")
 }
