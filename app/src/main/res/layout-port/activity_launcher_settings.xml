@@ -213,6 +213,15 @@
                             app:iconTint="?attr/colorPrimary" />
                     </LinearLayout>
 
+                    <TextView
+                        android:id="@+id/textRendererDescription"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="10dp"
+                        android:textAppearance="@style/TextAppearance.Material3.BodySmall"
+                        android:textIsSelectable="true"
+                        android:visibility="gone" />
+
                     <LinearLayout
                         android:id="@+id/layoutVulkanDriverSettings"
                         android:layout_width="match_parent"
