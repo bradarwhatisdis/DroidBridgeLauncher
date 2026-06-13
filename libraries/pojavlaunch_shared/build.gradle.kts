@@ -33,7 +33,7 @@ android {
             java {
                 setSrcDirs(listOf("$rootDir/libraries/PojavLauncher/app_pojavlauncher/src/main/java"))
                 // Exclude CriticalNative.java — conflicts with java.base module in JDK 17+
-                exclude("**/dalvik/**")
+                setExcludes(listOf("**/dalvik/**"))
             }
             res.srcDirs("$rootDir/libraries/PojavLauncher/app_pojavlauncher/src/main/res")
             assets.srcDirs("$rootDir/libraries/PojavLauncher/app_pojavlauncher/src/main/assets")
