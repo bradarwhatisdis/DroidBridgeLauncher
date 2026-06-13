@@ -73,11 +73,13 @@ dependencies {
     implementation("com.google.code.gson:gson:2.10.1")
     implementation("commons-io:commons-io:2.11.0")
     implementation("net.objecthunter:exp4j:0.4.8")
+    implementation("org.apache.commons:commons-compress:1.24.0")
 }
 
-// Exclude dalvik/annotation dir — package conflicts with java.base module in JDK 17+
+// Exclude only the conflicting dalvik/annotation package (CriticalNative.java).
+// Keep com/oracle/dalvik/VMLauncher.java which is needed at runtime.
 // NOTE: Must be outside the android {} block so Kotlin DSL resolves exclude()
 // on SourceDirectorySet, not Configuration.
 afterEvaluate {
-    android.sourceSets.getByName("main").java.exclude("**/dalvik/**")
+    android.sourceSets.getByName("main").java.exclude("**/dalvik/annotation/**")
 }
